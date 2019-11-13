@@ -1,3 +1,43 @@
+
+/*
+NoRT Ethernet Sender
+Copyright (C) 2019  Vladislav Tsendrovskii
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, version 3 of the License
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <https://www.gnu.org/licenses/>.
+*/
+
+/*
+Program description:
+
+This program is designed for transmitting lines to Ethernet, each line in it's own Ethernet frame,
+and receive frames from Ethernet and send them as line.
+
+Ethertype = 0xFEFE
+Frame format: hightbyte:lowbyte:string_without_'\n'
+Line shouldn't be longer than 1498 bytes.
+
+Lines are received and transmitted from/to TCP:8889
+
+When frame with ethertype = 0xFEFE is received, it's source is remembered and next frames are sending to this address.
+Until this, frames are sended to broadcast address.
+
+How to run:
+
+nort_eth_proxy if_name
+
+where if_name is a Ethernet interface name
+*/
+
 #include <stdio.h>
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -5,7 +45,6 @@
 #include <linux/if_ether.h>
 #include <net/if.h>
 #include <sys/ioctl.h>
-//#include <linux/if_arp.h>
 #include <net/ethernet.h>
 #include <netinet/ether.h>
 #include <netinet/in.h>
@@ -14,6 +53,8 @@
 #include <pthread.h>
 
 #include <arpa/inet.h>
+
+#define ETHERTYPE 0xFEFE
 
 int readline(int sock, char *buf)
 {
@@ -65,7 +106,7 @@ int send_command_to_rt(int ethsock, const char *buf, size_t len)
     eh->ether_dhost[4] = remote[4];
     eh->ether_dhost[5] = remote[5];
 
-    eh->ether_type = htons(0xFEFE);
+    eh->ether_type = htons(ETHERTYPE);
     msglen += sizeof(struct ether_header);
 
     ebuf[msglen++] = len / 256;
@@ -107,10 +148,10 @@ int get_iface_hwaddr(int sock, const char *ifname, unsigned char *addr)
 {
     struct ifreq if_mac;
     memset(&if_mac, 0, sizeof(struct ifreq));
-	strncpy(if_mac.ifr_name, ifname, IFNAMSIZ-1);
-	if (ioctl(sock, SIOCGIFHWADDR, &if_mac) < 0)
+    strncpy(if_mac.ifr_name, ifname, IFNAMSIZ-1);
+    if (ioctl(sock, SIOCGIFHWADDR, &if_mac) < 0)
     {
-	    perror("SIOCGIFHWADDR");
+        perror("SIOCGIFHWADDR");
         return -1;
     }
     memcpy(addr, ((uint8_t *)&if_mac.ifr_hwaddr.sa_data), ETH_ALEN);
@@ -121,8 +162,8 @@ int get_iface_index(int sock, const char *ifname)
 {
     struct ifreq if_idx;
     memset(&if_idx, 0, sizeof(struct ifreq));
-	strncpy(if_idx.ifr_name, ifname, IFNAMSIZ-1);
-	if (ioctl(sock, SIOCGIFINDEX, &if_idx) < 0)
+    strncpy(if_idx.ifr_name, ifname, IFNAMSIZ-1);
+    if (ioctl(sock, SIOCGIFINDEX, &if_idx) < 0)
     {
 	    perror("SIOCGIFINDEX");
         return -1;
@@ -173,7 +214,7 @@ int main(int argc, const char **argv)
     
     memset(&eth_sockaddr, 0, sizeof(struct sockaddr_ll));
     eth_sockaddr.sll_family = AF_PACKET;
-    eth_sockaddr.sll_protocol = htons(0xFEFE);
+    eth_sockaddr.sll_protocol = htons(ETHERTYPE);
     eth_sockaddr.sll_ifindex = index;
     eth_sockaddr.sll_halen = ETH_ALEN;
     eth_sockaddr.sll_hatype = 0x0001;
@@ -231,3 +272,4 @@ int main(int argc, const char **argv)
     pthread_join(thread, NULL);
     return 0;
 }
+
