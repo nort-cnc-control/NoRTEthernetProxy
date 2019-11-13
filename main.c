@@ -35,7 +35,7 @@ How to run:
 
 nort_eth_proxy if_name
 
-where if_name is a Ethernet interface name
+where if_name is a Ethernet interface name. eth0 as default
 */
 
 #include <stdio.h>
