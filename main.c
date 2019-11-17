@@ -124,7 +124,7 @@ int send_command_to_rt(int ethsock, const char *buf, size_t len)
     return sendto(ethsock, ebuf, msglen, 0, (struct sockaddr *)&eth_sockaddr, sizeof(struct sockaddr_ll));
 }
 
-int recv_message_from_rt(int ethsock, char *buf, size_t maxlen)
+int recv_message_from_rt(int ethsock, unsigned char *buf, size_t maxlen)
 {
     int len = recv(ethsock, buf, maxlen, 0);
     if (buf[12] != 0xFE || buf[13] != 0xFE)
@@ -138,6 +138,7 @@ int recv_message_from_rt(int ethsock, char *buf, size_t maxlen)
 volatile int run;
 int ethsock;
 int ctlsock;
+int clientctlsock;
 
 void print_hwaddr(const unsigned char *mac)
 {
@@ -181,12 +182,17 @@ void* read_eth_socket_cycle(void *args)
 {
     while (run)
     {
-        char buf[1500];
-        int len = recv_message_from_rt(ethsock, buf, 1500);
+        unsigned char buf[1500];
+        printf("Waiting response from eth\n");
+	    int len = recv_message_from_rt(ethsock, buf, 1500);
+	    printf("len = %i\n", len);
         if (len < 0)
+	    {
             continue;
+	    }
         printf("RECV ETH: %.*s\n", len, buf);
-        sendline(ctlsock, buf, len);
+        if (clientctlsock >= 0)
+            sendline(clientctlsock, buf, len);
     }
     return NULL;
 }
@@ -222,6 +228,7 @@ int create_ethernet(const char *ifname, unsigned short ethertype, unsigned char 
         printf("Can not bind to ethernet\n");
         return -1;
     }
+    clientctlsock = -1;
     return ethsock;
 }
 
@@ -277,11 +284,11 @@ int main(int argc, const char **argv)
     while (1)
     {
         char buf[1500];
-        int client = accept(ctlsock, NULL, NULL);
+        clientctlsock = accept(ctlsock, NULL, NULL);
         printf("Connect from client\n");
         while (1)
         {
-            int len = readline(client, buf);
+            int len = readline(clientctlsock, buf);
             if (len < 0)
             {
                 break;
@@ -324,7 +331,8 @@ int main(int argc, const char **argv)
             }
         }
         printf("Client disconnected\n");
-        close(client);
+        close(clientctlsock);
+        clientctlsock = -1;
     }
     run = 0;
     modbus_free(modbus);
