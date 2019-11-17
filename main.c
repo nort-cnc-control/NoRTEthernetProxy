@@ -261,12 +261,6 @@ int main(int argc, const char **argv)
     if (modbus == NULL)
         return -1;
 
-    if (modbus_connect(modbus) == -1) {
-        fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
-        modbus_free(modbus);
-        return -1;
-    }
-
     ethsock = create_ethernet(ifname, ETHERTYPE, local);
     if (ethsock < 0)
         return ethsock;
@@ -304,14 +298,28 @@ int main(int argc, const char **argv)
             }
             else if (!strncmp(buf, "MB:", 3))
             {
+                int i;
                 char addrs[4], vals[4], devids[4];
                 memcpy(devids, buf+3, 4);
                 memcpy(addrs, buf+3+4+1, 4);
                 memcpy(vals, buf+3+4+1+4+1, 4);
+                for (i = 0; i < 4; i++)
+                {
+                    devids[i] -= '0';
+                    addrs[i] -= '0';
+                    vals[i] -= '0';
+                }
                 unsigned addr = addrs[0]*16*16*16 + addrs[1]*16*16 + addrs[2]*16 + addrs[3];
                 unsigned val  = vals[0]*16*16*16 + vals[1]*16*16 + vals[2]*16 + vals[3];
-                unsigned devid = devids[0]*16*16*16 + devids[1]*16*16 + devids[2]*16 + addrs[3];
+                unsigned devid = devids[0]*16*16*16 + devids[1]*16*16 + devids[2]*16 + devids[3];
+                printf("Device: %04X, Reg: %04X = %04X\n", devid, addr, val);
                 modbus_set_slave(modbus, devid);
+                if (modbus_connect(modbus) == -1)
+                {
+                    fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
+                    modbus_free(modbus);
+                    return -1;
+                }
                 modbus_write_register(modbus, addr, val);
             }
         }
@@ -324,4 +332,3 @@ int main(int argc, const char **argv)
     pthread_join(thread, NULL);
     return 0;
 }
-
