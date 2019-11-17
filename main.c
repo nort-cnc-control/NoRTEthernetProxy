@@ -250,6 +250,20 @@ int create_control(unsigned short port)
     return ctlsock;
 }
 
+int hex2dig(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+
+    return -1;
+}
+
 int main(int argc, const char **argv)
 {
     int port = 8889;
@@ -306,19 +320,19 @@ int main(int argc, const char **argv)
             else if (!strncmp(buf, "MB:", 3))
             {
                 int i;
-                char addrs[4], vals[4], devids[4];
+                unsigned char addrs[4], vals[4], devids[4];
                 memcpy(devids, buf+3, 4);
                 memcpy(addrs, buf+3+4+1, 4);
                 memcpy(vals, buf+3+4+1+4+1, 4);
                 for (i = 0; i < 4; i++)
                 {
-                    devids[i] -= '0';
-                    addrs[i] -= '0';
-                    vals[i] -= '0';
+		    devids[i] = hex2dig(devids[i]);
+		    addrs[i] = hex2dig(addrs[i]);
+		    vals[i] = hex2dig(vals[i]);
                 }
-                unsigned addr = addrs[0]*16*16*16 + addrs[1]*16*16 + addrs[2]*16 + addrs[3];
-                unsigned val  = vals[0]*16*16*16 + vals[1]*16*16 + vals[2]*16 + vals[3];
-                unsigned devid = devids[0]*16*16*16 + devids[1]*16*16 + devids[2]*16 + devids[3];
+                unsigned addr =  addrs[0]*0x1000 +  addrs[1]*0x100 +  addrs[2]*0x10 +  addrs[3];
+                unsigned val  =  vals[0]*0x1000 +   vals[1]*0x100 +   vals[2]*0x10 +   vals[3];
+                unsigned devid = devids[0]*0x1000 + devids[1]*0x100 + devids[2]*0x10 + devids[3];
                 printf("Device: %04X, Reg: %04X = %04X\n", devid, addr, val);
                 modbus_set_slave(modbus, devid);
                 if (modbus_connect(modbus) == -1)
