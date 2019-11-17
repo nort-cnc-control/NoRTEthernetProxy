@@ -51,6 +51,12 @@ where if_name is a Ethernet interface name. eth0 as default
 #include <unistd.h>
 #include <string.h>
 #include <pthread.h>
+#include <fcntl.h>
+#include <termios.h>
+#include <unistd.h>
+#include <errno.h>
+#include <modbus.h>
+#include <modbus-rtu.h>
 
 #include <arpa/inet.h>
 
@@ -185,16 +191,9 @@ void* read_eth_socket_cycle(void *args)
     return NULL;
 }
 
-int main(int argc, const char **argv)
+int create_ethernet(const char *ifname, unsigned short ethertype, unsigned char *local_hwaddr)
 {
-    int port = 8889;
-    int i;
-    struct sockaddr_in ctl_sockaddr;
-    const char* ifname = "eth0";
-    if (argc > 1)
-        ifname = argv[1];
-
-    ethsock = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
+    int ethsock = socket(AF_PACKET, SOCK_RAW, IPPROTO_RAW);
     if (ethsock < 0)
     {
         printf("Can not create Ethernet socket\n");
@@ -205,16 +204,15 @@ int main(int argc, const char **argv)
     if (index < 0)
         return -1;
     printf("Index = %i\n", index);
-    if (get_iface_hwaddr(ethsock, ifname, local) < 0)
+    if (get_iface_hwaddr(ethsock, ifname, local_hwaddr) < 0)
         return -1;
     printf("Local MAC address:\n");
-    print_hwaddr(local);
+    print_hwaddr(local_hwaddr);
     printf("\n");
-
     
     memset(&eth_sockaddr, 0, sizeof(struct sockaddr_ll));
     eth_sockaddr.sll_family = AF_PACKET;
-    eth_sockaddr.sll_protocol = htons(ETHERTYPE);
+    eth_sockaddr.sll_protocol = htons(ethertype);
     eth_sockaddr.sll_ifindex = index;
     eth_sockaddr.sll_halen = ETH_ALEN;
     eth_sockaddr.sll_hatype = 0x0001;
@@ -224,18 +222,59 @@ int main(int argc, const char **argv)
         printf("Can not bind to ethernet\n");
         return -1;
     }
+    return ethsock;
+}
 
-    ctlsock = socket(AF_INET, SOCK_STREAM, 0);
+int create_control(unsigned short port)
+{
+    struct sockaddr_in ctl_sockaddr;
+    int ctlsock = socket(AF_INET, SOCK_STREAM, 0);
     setsockopt(ctlsock, SOL_SOCKET, SO_REUSEADDR, NULL, 0);
 
     ctl_sockaddr.sin_family = AF_INET;
     ctl_sockaddr.sin_port = htons(port);
     ctl_sockaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+
     if (bind(ctlsock, (struct sockaddr *)&ctl_sockaddr, sizeof(ctl_sockaddr)) < 0)
     {
         printf("Can not bind tcp\n");
         return -1;
     }
+    return ctlsock;
+}
+
+int main(int argc, const char **argv)
+{
+    int port = 8889;
+    int i;
+    
+    const char* ifname = "eth0";
+    const char* sername = "/dev/ttyUSB0";
+    int serspeed = 9600;
+    
+    if (argc > 2)
+    {
+        ifname = argv[1];
+        sername = argv[2];
+    }
+    modbus_t *modbus = modbus_new_rtu(sername, serspeed, 'N', 8, 1);
+    if (modbus == NULL)
+        return -1;
+
+    if (modbus_connect(modbus) == -1) {
+        fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
+        modbus_free(modbus);
+        return -1;
+    }
+
+    ethsock = create_ethernet(ifname, ETHERTYPE, local);
+    if (ethsock < 0)
+        return ethsock;
+
+    ctlsock = create_control(port);
+    if (ctlsock < 0)
+        return ctlsock;
+    
     run = 1;
     pthread_t thread;
     int res = pthread_create(&thread, NULL, read_eth_socket_cycle, NULL);
@@ -258,17 +297,30 @@ int main(int argc, const char **argv)
             {
                 break;
             }
-            else if (!strncmp(buf, "CMD:", 4))
+            else if (!strncmp(buf, "RT:", 3))
             {
-                const char *cmd = buf + 4;
-                int res = send_command_to_rt(ethsock, cmd, len-4);
-                printf("Send result: %i\n", res);
+                const char *cmd = buf + 3;
+                int res = send_command_to_rt(ethsock, cmd, len-3);
+            }
+            else if (!strncmp(buf, "MB:", 3))
+            {
+                char addrs[4], vals[4], devids[4];
+                memcpy(devids, buf+3, 4);
+                memcpy(addrs, buf+3+4+1, 4);
+                memcpy(vals, buf+3+4+1+4+1, 4);
+                unsigned addr = addrs[0]*16*16*16 + addrs[1]*16*16 + addrs[2]*16 + addrs[3];
+                unsigned val  = vals[0]*16*16*16 + vals[1]*16*16 + vals[2]*16 + vals[3];
+                unsigned devid = devids[0]*16*16*16 + devids[1]*16*16 + devids[2]*16 + addrs[3];
+                modbus_set_slave(modbus, devid);
+                modbus_write_register(modbus, addr, val);
             }
         }
         printf("Client disconnected\n");
         close(client);
     }
     run = 0;
+    modbus_free(modbus);
+    close(ethsock);
     pthread_join(thread, NULL);
     return 0;
 }
