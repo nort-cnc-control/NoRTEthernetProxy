@@ -1,7 +1,7 @@
 
 /*
 NoRT Ethernet Sender
-Copyright (C) 2019  Vladislav Tsendrovskii
+Copyright (C) 2019-2020  Vladislav Tsendrovskii
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -55,8 +55,6 @@ where if_name is a Ethernet interface name. eth0 as default
 #include <termios.h>
 #include <unistd.h>
 #include <errno.h>
-#include <modbus.h>
-#include <modbus-rtu.h>
 
 #include <arpa/inet.h>
 
@@ -270,17 +268,11 @@ int main(int argc, const char **argv)
     int i;
     
     const char* ifname = "eth0";
-    const char* sername = "/dev/ttyUSB0";
-    int serspeed = 9600;
     
-    if (argc > 2)
+    if (argc > 1)
     {
         ifname = argv[1];
-        sername = argv[2];
     }
-    modbus_t *modbus = modbus_new_rtu(sername, serspeed, 'N', 8, 1);
-    if (modbus == NULL)
-        return -1;
 
     ethsock = create_ethernet(ifname, ETHERTYPE, local);
     if (ethsock < 0)
@@ -317,39 +309,12 @@ int main(int argc, const char **argv)
                 const char *cmd = buf + 3;
                 int res = send_command_to_rt(ethsock, cmd, len-3);
             }
-            else if (!strncmp(buf, "MB:", 3))
-            {
-                int i;
-                unsigned char addrs[4], vals[4], devids[4];
-                memcpy(devids, buf+3, 4);
-                memcpy(addrs, buf+3+4+1, 4);
-                memcpy(vals, buf+3+4+1+4+1, 4);
-                for (i = 0; i < 4; i++)
-                {
-		    devids[i] = hex2dig(devids[i]);
-		    addrs[i] = hex2dig(addrs[i]);
-		    vals[i] = hex2dig(vals[i]);
-                }
-                unsigned addr =  addrs[0]*0x1000 +  addrs[1]*0x100 +  addrs[2]*0x10 +  addrs[3];
-                unsigned val  =  vals[0]*0x1000 +   vals[1]*0x100 +   vals[2]*0x10 +   vals[3];
-                unsigned devid = devids[0]*0x1000 + devids[1]*0x100 + devids[2]*0x10 + devids[3];
-                printf("Device: %04X, Reg: %04X = %04X\n", devid, addr, val);
-                modbus_set_slave(modbus, devid);
-                if (modbus_connect(modbus) == -1)
-                {
-                    fprintf(stderr, "Connection failed: %s\n", modbus_strerror(errno));
-                    modbus_free(modbus);
-                    return -1;
-                }
-                modbus_write_register(modbus, addr, val);
-            }
         }
         printf("Client disconnected\n");
         close(clientctlsock);
         clientctlsock = -1;
     }
     run = 0;
-    modbus_free(modbus);
     close(ethsock);
     pthread_join(thread, NULL);
     return 0;
