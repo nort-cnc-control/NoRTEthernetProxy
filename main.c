@@ -180,14 +180,14 @@ void* read_eth_socket_cycle(void *args)
 {
     while (run)
     {
-        unsigned char buf[1500];
+        unsigned char buf[1500] = {0};
         printf("Waiting response from eth\n");
-	    int len = recv_message_from_rt(ethsock, buf, 1500);
-	    printf("len = %i\n", len);
+        int len = recv_message_from_rt(ethsock, buf, 1500);
+        printf("len = %i\n", len);
         if (len < 0)
-	    {
+        {
             continue;
-	    }
+        }
         printf("RECV ETH: %.*s\n", len, buf);
         if (clientctlsock >= 0)
             sendline(clientctlsock, buf, len);
